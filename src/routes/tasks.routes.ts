@@ -1,21 +1,21 @@
-import { Router } from 'express';
+import { Router, RequestHandler } from 'express';
 import { 
   getTasks, 
   createTask, 
   updateTask, 
   deleteTask, 
-  authMiddleware 
 } from '../controllers/tasks.controller';
+import { authMiddleware } from '../middleware/auth.middleware'; 
 
 const router = Router();
 
 // Middleware de autenticación
-router.use(authMiddleware);
+router.use(authMiddleware as RequestHandler);
 
 // Definición de rutas
 router.get('/', getTasks);
 router.post('/', createTask);
-router.patch('/:id', updateTask);
+router.put('/:id', updateTask);
 router.delete('/:id', deleteTask);
 
 export default router;

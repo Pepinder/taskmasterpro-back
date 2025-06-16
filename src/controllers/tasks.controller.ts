@@ -1,84 +1,106 @@
-import { Request, Response, NextFunction, RequestHandler } from 'express';
+import { RequestHandler } from 'express'; // <-- Importa RequestHandler
 import { PrismaClient } from '@prisma/client';
-import jwt from 'jsonwebtoken';
 
 const prisma = new PrismaClient();
-const JWT_SECRET = 'tu_clave_secreta';
 
+// ================== CONTROLADORES CORREGIDOS ==================
 
-// ================== MIDDLEWARE ==================
-export const authMiddleware: RequestHandler = (
-  req: Request, 
-  res: Response, 
-  next: NextFunction
-) => {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) {
-    res.status(401).json({ error: "Acceso no autorizado" });
-    return;
-  }
+export const getTasks: RequestHandler = async (req, res) => {
+  const userId = req.user!.id;
+  const { status, sortBy = 'createdAt', order = 'desc' } = req.query as { status?: string, sortBy?: string, order?: 'asc' | 'desc' };
 
   try {
-    const decoded = jwt.verify(token, JWT_SECRET) as { userId: string };
-    res.locals.userId = decoded.userId; // Usar res.locals en lugar de req
-    next();
-  } catch (error) {
-    res.status(401).json({ error: "Token inválido" });
-  }
-};
+    const where: any = { userId };
+    if (status === 'completed') where.completed = true;
+    if (status === 'pending') where.completed = false;
 
-// ================== CONTROLADORES ==================
-// Obtener tareas del usuario
-export const getTasks = async (req: Request, res: Response) => {
-  try {
-    const tasks = await prisma.task.findMany({
-      where: { userId: res.locals.userId }, // Cambiado a res.locals
-    });
+    const orderBy: any = {};
+    if (sortBy === 'title') {
+      orderBy.title = order;
+    } else {
+      orderBy.createdAt = order;
+    }
+
+    const tasks = await prisma.task.findMany({ where, orderBy });
     res.json(tasks);
   } catch (error) {
-    res.status(500).json({ error: "Error al obtener tareas" });
+    // Es buena práctica loguear el error en el servidor
+    console.error("Error en getTasks:", error);
+    res.status(500).json({ message: 'Error al obtener tareas' });
   }
 };
 
-// Crear tarea
-export const createTask = async (req: Request, res: Response) => {
+export const createTask: RequestHandler = async (req, res) => {
   const { title } = req.body;
+  const userId = req.user!.id;
+
+  if (!title) {
+    res.status(400).json({ message: 'El título es requerido' }); // Envia la respuesta
+    return; // Termina la ejecución de la función
+  }
+
   try {
-    const task = await prisma.task.create({
-      data: { 
+    const newTask = await prisma.task.create({
+      data: {
         title,
-        completed: false,
-        userId: res.locals.userId, 
+        userId,
       },
     });
-    res.json(task);
+    res.status(201).json(newTask);
   } catch (error) {
-    res.status(500).json({ error: "Error al crear tarea" });
+    console.error("Error en createTask:", error);
+    res.status(500).json({ message: 'Error al crear la tarea' });
   }
 };
 
-// Actualizar tarea
-export const updateTask = async (req: Request, res: Response) => {
+export const updateTask: RequestHandler = async (req, res) => {
+  const userId = req.user!.id;
   const { id } = req.params;
-  const { completed, title } = req.body;
+  const { title, completed } = req.body;
+
   try {
-    const task = await prisma.task.update({
-      where: { id },
-      data: { completed, title },
+    const taskToUpdate = await prisma.task.findFirst({
+        where: { id, userId }
     });
-    res.json(task);
+
+    if (!taskToUpdate) {
+        res.status(404).json({ message: 'Tarea no encontrada o no tienes permiso para editarla' });
+        return ; // Termina la ejecución si no se encuentra la tarea
+    }
+
+    const updatedTask = await prisma.task.update({
+      where: { id },
+      data: { title, completed },
+    });
+
+    res.json(updatedTask);
   } catch (error) {
-    res.status(500).json({ error: "Error al actualizar tarea" });
+    console.error("Error en updateTask:", error);
+    res.status(500).json({ message: 'Error al actualizar la tarea' });
   }
 };
 
-// Eliminar tarea
-export const deleteTask = async (req: Request, res: Response) => {
+export const deleteTask: RequestHandler = async (req, res) => {
+  const userId = req.user!.id;
   const { id } = req.params;
+
   try {
-    await prisma.task.delete({ where: { id } });
-    res.json({ message: "Tarea eliminada" });
+    const taskToDelete = await prisma.task.findFirst({
+        where: { id, userId }
+    });
+
+    if (!taskToDelete) {
+        res.status(404).json({ message: 'Tarea no encontrada o no tienes permiso para eliminarla' });
+        return; // Termina la ejecución si no se encuentra la tarea
+    }
+
+    await prisma.task.delete({
+      where: { id },
+    });
+
+    res.status(204).send();
   } catch (error) {
-    res.status(500).json({ error: "Error al eliminar tarea" });
+    console.error("Error en deleteTask:", error);
+    res.status(500).json({ message: 'Error al eliminar la tarea' });
   }
 };

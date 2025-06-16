@@ -1,39 +1,44 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
-// Use the same secret as in the controller. Move to env variables for production.
-const JWT_SECRET = 'tu_clave_secreta';
+// ¡MUY IMPORTANTE! Mueve esto a tu archivo .env
+// En .env -> JWT_SECRET="tu_secreto_super_seguro_y_largo"
+const JWT_SECRET = process.env.JWT_SECRET ||'tu_clave_secreta_por_defecto';
 
-// Extend the Express Request interface to include userId
+// Extendemos la interfaz Request de Express para que TypeScript conozca req.user
 declare global {
   namespace Express {
     interface Request {
-      userId?: string;
+      user?: {
+        id: string;
+      };
     }
   }
 }
 
-export const authenticateToken = (req: Request, res: Response, next: NextFunction) => {
+export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
   const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1]; // Bearer TOKEN
+  const token = authHeader && authHeader.split(' ')[1]; // Formato "Bearer TOKEN"
 
-  if (token == null) {
-    return res.sendStatus(401); // if there isn't any token
+  if (!token) {
+    return res.status(401).json({ message: 'Acceso denegado. No se proporcionó token.' });
   }
 
-  jwt.verify(token, JWT_SECRET, (err: any, payload: any) => {
-    if (err) {
-      console.error('JWT Verification Error:', err.message);
-      return res.sendStatus(403); // Forbidden (invalid token)
+  try {
+    // Verificar el token con el secreto
+    const payload = jwt.verify(token, JWT_SECRET) as { userId: string };
+
+    if (!payload || !payload.userId) {
+       return res.status(403).json({ message: 'Token inválido o malformado.' });
     }
 
-    // Check if payload has userId
-    if (!payload || typeof payload.userId !== 'string') {
-        console.error('JWT Payload Error: userId missing or invalid');
-        return res.sendStatus(403); // Forbidden (invalid payload)
-    }
-
-    req.userId = payload.userId; // Attach userId to the request object
-    next(); // pass the execution off to whatever request the client intended
-  });
+    // Adjuntamos el usuario al objeto request para usarlo en los controladores
+    req.user = { id: payload.userId };
+    
+    // Pasar al siguiente controlador/middleware
+    next();
+  } catch (error) {
+    // Esto captura errores como "token expired" o "invalid signature"
+    return res.status(403).json({ message: 'Token inválido o expirado.' });
+  }
 };
